@@ -1,0 +1,7 @@
+[package]
+name = "terminal-chat-rs"
+version = "0.1.0"
+authors = ["Dimeji Ogunyoye <dogunyoye@googlemail.com>"]
+
+[dependencies]
+ws = "*"
