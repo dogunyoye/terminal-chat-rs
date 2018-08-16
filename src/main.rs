@@ -1,5 +1,12 @@
+mod server;
+
 use std::process::Command;
 use std::io;
+
+use server::server_manager::ServerManager;
+use server::server_manager_impl::ServerManagerImpl;
+
+use std::collections::HashMap;
 
 fn main() {
 
@@ -8,6 +15,10 @@ fn main() {
     });
 
     println!("{}", String::from_utf8_lossy(&output.stdout));
+
+    let server_manager = ServerManagerImpl {
+        servers: HashMap::new()
+    };
 
     let row = "*".repeat(38);
     let welcome_line = "*    Welcome to terminal-chat-rs!    *";
@@ -41,7 +52,10 @@ fn main() {
     };
 
     match option_num {
-        1 => println!("Creating server..."),
+        1 => {
+            println!("Creating server...");
+            server_manager.add_server(8080);
+        },
         2 => println!("Removing server..."),
         3 => println!("Joining room..."),
         _ => println!("Unknown option")
