@@ -1,12 +1,53 @@
+extern crate ws;
+
 mod server;
 
 use std::process::Command;
 use std::io;
 
 use server::server_manager::ServerManager;
+use server::server_manager_impl::ServerManagerFactory;
 use server::server_manager_impl::ServerManagerImpl;
 
 use std::collections::HashMap;
+
+fn handle_add_server(mut server_manager: ServerManagerImpl) {
+    println!("Enter port to bind to: ");
+
+    let mut port = String::new();
+
+    io::stdin().read_line(&mut port)
+        .expect("Failed to read line");
+
+    let port_num: u32 = match port.trim().parse() {
+        Ok(num) => num,
+        Err(_) => {
+            println!("Unable to parse port number");
+            return
+        },
+    };
+
+    server_manager.add_server(port_num);
+}
+
+fn handle_remove_server(mut server_manager: ServerManagerImpl) {
+    println!("Enter port to remove: ");
+
+    let mut port = String::new();
+
+    io::stdin().read_line(&mut port)
+        .expect("Failed to read line");
+
+    let port_num: u32 = match port.trim().parse() {
+        Ok(num) => num,
+        Err(_) => {
+            println!("Unable to parse port number");
+            return
+        },
+    };
+
+    server_manager.remove_server(port_num);
+}
 
 fn main() {
 
@@ -16,9 +57,7 @@ fn main() {
 
     println!("{}", String::from_utf8_lossy(&output.stdout));
 
-    let server_manager = ServerManagerImpl {
-        servers: HashMap::new()
-    };
+    let server_manager = ServerManagerImpl::new();
 
     let row = "*".repeat(38);
     let welcome_line = "*    Welcome to terminal-chat-rs!    *";
@@ -46,7 +85,7 @@ fn main() {
     let option_num: u32 = match option.trim().parse() {
         Ok(num) => num,
         Err(_) => {
-            println!("Unable to parse number");
+            println!("Unable to parse option number");
             return
         },
     };
@@ -54,9 +93,12 @@ fn main() {
     match option_num {
         1 => {
             println!("Creating server...");
-            server_manager.add_server(8080);
+            handle_add_server(server_manager);
         },
-        2 => println!("Removing server..."),
+        2 => {
+            println!("Removing server...");
+            handle_remove_server(server_manager);
+        },
         3 => println!("Joining room..."),
         _ => println!("Unknown option")
     }
