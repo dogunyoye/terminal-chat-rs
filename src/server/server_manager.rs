@@ -1,3 +1,5 @@
+use std::result::Result;
+
 pub trait ServerManager {
     /**
      * Add a websocket server
@@ -7,5 +9,5 @@ pub trait ServerManager {
     /**
      * Remove a websocket server
      **/
-    fn remove_server(&mut self, port:u32);
+    fn remove_server(&mut self, port:u32) -> Result<String, String>;
 }

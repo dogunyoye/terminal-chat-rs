@@ -1,10 +1,13 @@
-use ws::{listen, CloseCode, Sender, Handler, Message, Result};
+use ws::{listen, CloseCode, Sender, Handler, Message};
+
+use ws::Result as WSResult;
 
 use std::thread;
 use std::thread::JoinHandle;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use server::server_manager::ServerManager;
+
+use std::result::Result;
 
 struct Server {
     out: Sender
@@ -14,7 +17,7 @@ struct Server {
 
 impl Handler for Server {
 
-    fn on_message(&mut self, msg: Message) -> Result<()> {
+    fn on_message(&mut self, msg: Message) -> WSResult<()> {
         println!("Server got message '{}'. ", msg);
         self.out.send(msg)
     }
@@ -55,13 +58,30 @@ impl ServerManager for ServerManagerImpl {
         ).unwrap());
 
         if !self.servers.contains_key(&key) {
-            println!("inserted!");
             self.servers.insert(key, join_handle);
         }
 
     }
 
-    fn remove_server(&mut self, port:u32) {
+    fn remove_server(&mut self, port:u32) -> Result<String, String> {
         println!("Removing server on port {}", port);
+
+        let sock_addr = "127.0.0.1:".to_owned() + &port.to_string();
+        let value: Option<JoinHandle<()>> = self.servers.remove(&sock_addr);
+
+        if value.is_none() {
+            let error_messsage = format!("Server on port {} does not exist", port);
+            return Err(error_messsage);
+        }
+
+        let handle = value.unwrap();
+        let join_result = handle.join();
+
+        if join_result.is_ok() {
+            let ok_message = format!("Server on port {} removed", port);
+            return Ok(ok_message);
+        }
+
+        return Err("Couldn't join on the associated thread".to_string());
     }
 }

@@ -9,8 +9,6 @@ use server::server_manager::ServerManager;
 use server::server_manager_impl::ServerManagerFactory;
 use server::server_manager_impl::ServerManagerImpl;
 
-use std::collections::HashMap;
-
 fn handle_add_server(mut server_manager: ServerManagerImpl) {
     println!("Enter port to bind to: ");
 
@@ -46,7 +44,14 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
         },
     };
 
-    server_manager.remove_server(port_num);
+    let remove_result = server_manager.remove_server(port_num);
+
+    if remove_result.is_ok() {
+        println!("{}", remove_result.unwrap());
+        return;
+    }
+
+    println!("{}", remove_result.unwrap_err());
 }
 
 fn main() {
