@@ -4,6 +4,7 @@ mod server;
 
 use std::process::Command;
 use std::io;
+use std::net::SocketAddr;
 
 use server::server_manager::ServerManager;
 use server::server_manager_impl::ServerManagerFactory;
@@ -54,6 +55,24 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
     println!("{}", remove_result.unwrap_err());
 }
 
+fn handle_join_server(mut server_manager: ServerManagerImpl) {
+    println!("Enter server address (i.e 127.0.0.1:8080): ");
+
+    let mut addr = String::new();
+
+    io::stdin().read_line(&mut addr)
+        .expect("Failed to read line");
+
+    let result = addr.parse::<SocketAddr>();
+
+    if result.is_ok() {
+        let sock_addr = result.unwrap();
+        server_manager.join_server(sock_addr);
+        return;
+    }
+
+}
+
 fn main() {
 
     let output = Command::new("clear").output().unwrap_or_else(|e| {
@@ -70,7 +89,7 @@ fn main() {
 
     let create_server_option = "[1] Create server";
     let remove_server_option = "[2] Remove server";
-    let join_room_option = "[3] Join room";
+    let join_server_option = "[3] Join server";
 
     println!("{}", row);
     println!("{}", welcome_line);
@@ -78,7 +97,7 @@ fn main() {
     println!("{}\n", row);
     println!("{}", create_server_option);
     println!("{}", remove_server_option);
-    println!("{}\n", join_room_option);
+    println!("{}\n", join_server_option);
 
     println!("Please select an option: ");
 
@@ -104,7 +123,10 @@ fn main() {
             println!("Removing server...");
             handle_remove_server(server_manager);
         },
-        3 => println!("Joining room..."),
+        3 => {
+            println!("Joining server...");
+            handle_join_server(server_manager);
+        },
         _ => println!("Unknown option")
     }
 }

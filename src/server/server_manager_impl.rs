@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use server::server_manager::ServerManager;
 
 use std::result::Result;
+use std::net::SocketAddr;
 
 struct Server {
     out: Sender
@@ -83,5 +84,9 @@ impl ServerManager for ServerManagerImpl {
         }
 
         return Err("Couldn't join on the associated thread".to_string());
+    }
+
+    fn join_server(&mut self, sock_addr:SocketAddr) {
+        //TO-DO Implement me
     }
 }
