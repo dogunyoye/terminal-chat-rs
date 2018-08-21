@@ -88,5 +88,6 @@ impl ServerManager for ServerManagerImpl {
 
     fn join_server(&mut self, sock_addr:SocketAddr) {
         //TO-DO Implement me
+        println!("Joining server: {}", sock_addr);
     }
 }

@@ -42,7 +42,7 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
         Err(_) => {
             println!("Unable to parse port number");
             return
-        },
+        }
     };
 
     let remove_result = server_manager.remove_server(port_num);
@@ -63,7 +63,7 @@ fn handle_join_server(mut server_manager: ServerManagerImpl) {
     io::stdin().read_line(&mut addr)
         .expect("Failed to read line");
 
-    let result = addr.parse::<SocketAddr>();
+    let result = addr.trim().parse::<SocketAddr>();
 
     if result.is_ok() {
         let sock_addr = result.unwrap();
@@ -71,6 +71,7 @@ fn handle_join_server(mut server_manager: ServerManagerImpl) {
         return;
     }
 
+    println!("Error: {}", result.unwrap_err());
 }
 
 fn main() {
