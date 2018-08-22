@@ -86,8 +86,8 @@ impl ServerManager for ServerManagerImpl {
         return Err("Couldn't join on the associated thread".to_string());
     }
 
-    fn join_server(&mut self, sock_addr:SocketAddr) {
+    fn join_server(&mut self, username:String, sock_addr:SocketAddr) {
         //TO-DO Implement me
-        println!("Joining server: {}", sock_addr);
+        println!("Joining server: {} as {}", sock_addr, username);
     }
 }

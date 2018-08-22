@@ -15,5 +15,5 @@ pub trait ServerManager {
     /**
      * Connect to a websocket server
      **/
-    fn join_server(&mut self, sock_addr:SocketAddr);
+    fn join_server(&mut self, username:String, sock_addr:SocketAddr);
 }

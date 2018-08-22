@@ -35,7 +35,7 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
     let mut port = String::new();
 
     io::stdin().read_line(&mut port)
-        .expect("Failed to read line");
+        .expect("Failed to read port");
 
     let port_num: u32 = match port.trim().parse() {
         Ok(num) => num,
@@ -56,6 +56,13 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
 }
 
 fn handle_join_server(mut server_manager: ServerManagerImpl) {
+    println!("Enter username: ");
+
+    let mut username = String::new();
+
+    io::stdin().read_line(&mut username)
+        .expect("Failed to read username");
+
     println!("Enter server address (i.e 127.0.0.1:8080): ");
 
     let mut addr = String::new();
@@ -67,7 +74,7 @@ fn handle_join_server(mut server_manager: ServerManagerImpl) {
 
     if result.is_ok() {
         let sock_addr = result.unwrap();
-        server_manager.join_server(sock_addr);
+        server_manager.join_server(username.trim().to_string(), sock_addr);
         return;
     }
 
