@@ -1,4 +1,4 @@
-use ws::{listen, CloseCode, Sender, Handler, Message};
+use ws::{listen, connect, CloseCode, Sender, Handler, Message};
 
 use ws::Result as WSResult;
 
@@ -89,5 +89,15 @@ impl ServerManager for ServerManagerImpl {
     fn join_server(&mut self, username:String, sock_addr:SocketAddr) {
         //TO-DO Implement me
         println!("Joining server: {} as {}", sock_addr, username);
+
+        let url = "ws://".to_owned() + &sock_addr.to_string();
+        connect(url, |out| {
+            out.send("Hello WebSocket").unwrap();
+
+            move |msg| {
+                println!("Got message: {}", msg);
+                out.close(CloseCode::Normal)
+            }
+        }).unwrap();
     }
 }

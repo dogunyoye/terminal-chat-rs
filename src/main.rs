@@ -126,6 +126,7 @@ fn main() {
         1 => {
             println!("Creating server...");
             handle_add_server(server_manager);
+            loop {};
         },
         2 => {
             println!("Removing server...");
