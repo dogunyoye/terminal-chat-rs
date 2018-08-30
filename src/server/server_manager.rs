@@ -1,5 +1,4 @@
 use std::result::Result;
-use std::net::SocketAddr;
 
 pub trait ServerManager {
     /**
@@ -11,9 +10,4 @@ pub trait ServerManager {
      * Remove a websocket server
      **/
     fn remove_server(&mut self, port:u32) -> Result<String, String>;
-
-    /**
-     * Connect to a websocket server
-     **/
-    fn join_server(&mut self, username:String, sock_addr:SocketAddr);
 }

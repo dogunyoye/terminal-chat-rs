@@ -1,6 +1,7 @@
 extern crate ws;
 
 mod server;
+mod client;
 
 use std::process::Command;
 use std::io;
@@ -9,6 +10,10 @@ use std::net::SocketAddr;
 use server::server_manager::ServerManager;
 use server::server_manager_impl::ServerManagerFactory;
 use server::server_manager_impl::ServerManagerImpl;
+
+use client::client_manager::ClientManager;
+use client::client_manager_impl::ClientManagerFactory;
+use client::client_manager_impl::ClientManagerImpl;
 
 fn handle_add_server(mut server_manager: ServerManagerImpl) {
     println!("Enter port to bind to: ");
@@ -55,7 +60,7 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
     println!("{}", remove_result.unwrap_err());
 }
 
-fn handle_join_server(mut server_manager: ServerManagerImpl) {
+fn handle_join_server(mut client_manager: ClientManagerImpl) {
     println!("Enter username: ");
 
     let mut username = String::new();
@@ -74,7 +79,7 @@ fn handle_join_server(mut server_manager: ServerManagerImpl) {
 
     if result.is_ok() {
         let sock_addr = result.unwrap();
-        server_manager.join_server(username.trim().to_string(), sock_addr);
+        client_manager.join_server(username.trim().to_string(), sock_addr);
         return;
     }
 
@@ -90,6 +95,7 @@ fn main() {
     println!("{}", String::from_utf8_lossy(&output.stdout));
 
     let server_manager = ServerManagerImpl::new();
+    let client_manager : ClientManagerImpl = ClientManagerImpl::new();
 
     let row = "*".repeat(38);
     let welcome_line = "*    Welcome to terminal-chat-rs!    *";
@@ -134,7 +140,7 @@ fn main() {
         },
         3 => {
             println!("Joining server...");
-            handle_join_server(server_manager);
+            handle_join_server(client_manager);
         },
         _ => println!("Unknown option")
     }
