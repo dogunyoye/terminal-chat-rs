@@ -92,33 +92,4 @@ impl ServerManager for ServerManagerImpl {
 
         return Err("Couldn't join on the associated thread".to_string());
     }
-
-//    fn join_server(&mut self, username:String, sock_addr:SocketAddr) {
-//        println!("Joining server: {} as {}", sock_addr, username);
-//
-//        let url = "ws://".to_owned() + &sock_addr.to_string();
-//        connect(url, |out| {
-//
-//            println!("Getting.. {}", sock_addr.to_string());
-//            let value_property : Option<&ServerProperties> = self.servers.get(&sock_addr.to_string());
-//
-//            let server_properties : &ServerProperties = value_property.unwrap();
-//            let rooms_map : &HashMap<String, Vec<Sender>> = &server_properties.rooms;
-//
-//            if value_property.is_some() && !rooms_map.contains_key("test-room") {
-//                println!("Adding test-room");
-//                let mut clients_list : Vec<Sender> = Vec::new();
-//                clients_list.push(out.clone());
-//
-//                rooms_map.to_owned().insert("test-room".to_string(), clients_list);
-//            }
-//            else {
-//                println!("Already exists, so get set and add client");
-//            }
-//
-//            move |msg| {
-//                Ok(())
-//            }
-//        }).unwrap();
-//    }
 }
