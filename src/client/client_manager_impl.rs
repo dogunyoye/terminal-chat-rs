@@ -1,4 +1,6 @@
 use ws::{connect};
+
+use std::io;
 use client::client_manager::ClientManager;
 
 use std::net::SocketAddr;
@@ -17,6 +19,9 @@ impl ClientManager for ClientManagerImpl {
         println!("Joining server: {} as {}", sock_addr, username);
         let url = "ws://".to_owned() + &sock_addr.to_string();
         connect(url, |out| {
+            let mut message = String::new();
+            io::stdin().read_line(&mut message).expect("Failed to read message");
+            out.send(message.trim());
 
             move |msg| {
                 Ok(())
