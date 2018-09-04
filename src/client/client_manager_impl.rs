@@ -23,7 +23,6 @@ impl ClientManager for ClientManagerImpl {
             let mut message = String::new();
             io::stdin().read_line(&mut message).expect("Failed to read message");
             out.send(message.trim());
-            out.send(message.trim());
 
             move |msg| {
                 Ok(())

@@ -8,10 +8,11 @@ use std::collections::HashMap;
 use server::server_manager::ServerManager;
 
 use std::result::Result;
+use std::sync::{Arc, Mutex};
 
 struct Server {
     out: Sender,
-    rooms: HashMap<String, Vec<Sender>>
+    rooms: Arc<Mutex<HashMap<String, Vec<Sender>>>>
 }
 
 impl Handler for Server {
@@ -23,6 +24,10 @@ impl Handler for Server {
 
     fn on_message(&mut self, msg: Message) -> WSResult<()> {
         println!("Server got message '{}'. ", msg);
+        if let Some(clients) = self.rooms.lock().unwrap().get_mut("default") {
+            clients.push(self.out.clone());
+            println!("List size: {}", clients.len());
+        }
         self.out.send(msg)
     }
 
@@ -58,10 +63,10 @@ impl ServerManager for ServerManagerImpl {
         let sock_addr = "127.0.0.1:".to_owned() + &port.to_string();
         let key = sock_addr.clone();
 
-        let mut rooms : HashMap<String, Vec<Sender>> = HashMap::new();
+        let rooms : Arc<Mutex<_>> = Arc::new(Mutex::new(HashMap::new()));
         let default_list : Vec<Sender> = Vec::new();
 
-        rooms.insert("default".to_string(), default_list);
+        rooms.lock().unwrap().insert("default".to_string(), default_list);
 
         let join_handle: JoinHandle<_> =
             thread::spawn(move || listen(sock_addr, |out|
