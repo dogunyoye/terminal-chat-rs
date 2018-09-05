@@ -19,16 +19,21 @@ impl Handler for Server {
 
     fn on_open(&mut self, _: Handshake) -> WSResult<()> {
         println!("token in open {:?}", self.out.token());
+        if let Some(clients) = self.rooms.lock().unwrap().get_mut("default") {
+            clients.push(self.out.clone());
+            println!("List size: {}", clients.len());
+        }
         Ok(())
     }
 
     fn on_message(&mut self, msg: Message) -> WSResult<()> {
         println!("Server got message '{}'. ", msg);
         if let Some(clients) = self.rooms.lock().unwrap().get_mut("default") {
-            clients.push(self.out.clone());
-            println!("List size: {}", clients.len());
+            for c in clients {
+                c.send(msg.clone());
+            }
         }
-        self.out.send(msg)
+        Ok(())
     }
 
     fn on_close(&mut self, code: CloseCode, reason: &str) {

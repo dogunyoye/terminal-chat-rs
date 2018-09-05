@@ -25,6 +25,7 @@ impl ClientManager for ClientManagerImpl {
             out.send(message.trim());
 
             move |msg| {
+            println!("Got message {}", msg);
                 Ok(())
             }
         }).unwrap();
