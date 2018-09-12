@@ -18,10 +18,8 @@ struct Server {
 impl Handler for Server {
 
     fn on_open(&mut self, _: Handshake) -> WSResult<()> {
-        println!("token in open {:?}", self.out.token());
         if let Some(clients) = self.rooms.lock().unwrap().get_mut("default") {
             clients.push(self.out.clone());
-            println!("List size: {}", clients.len());
         }
         Ok(())
     }

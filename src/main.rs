@@ -15,6 +15,8 @@ use client::client_manager::ClientManager;
 use client::client_manager_impl::ClientManagerFactory;
 use client::client_manager_impl::ClientManagerImpl;
 
+use std::{thread, time};
+
 fn handle_add_server(mut server_manager: ServerManagerImpl) {
     println!("Enter port to bind to: ");
 
@@ -80,7 +82,19 @@ fn handle_join_server(mut client_manager: ClientManagerImpl) {
     if result.is_ok() {
         let sock_addr = result.unwrap();
         client_manager.join_server(username.trim().to_string(), sock_addr);
-        return;
+        let connections_map = client_manager.get_connections_map();
+
+        let millis = time::Duration::from_millis(10000);
+        thread::sleep(millis);
+
+        let map = connections_map.lock().unwrap();
+        let client = map.get(&sock_addr.to_string());
+
+        loop {
+            let mut message = String::new();
+            io::stdin().read_line(&mut message).expect("Failed to message");
+            client.unwrap().send(message.trim());
+        }
     }
 
     println!("Error: {}", result.unwrap_err());
