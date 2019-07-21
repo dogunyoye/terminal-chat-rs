@@ -28,7 +28,9 @@ impl Handler for Server {
         println!("Server got message '{}'. ", msg);
         if let Some(clients) = self.rooms.lock().unwrap().get_mut("default") {
             for c in clients {
-                c.send(msg.clone());
+                if !c.send(msg.clone()).is_ok() {
+                    println!("Failed to dispatch message to client");
+                }
             }
         }
         Ok(())

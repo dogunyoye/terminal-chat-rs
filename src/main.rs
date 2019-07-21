@@ -4,6 +4,7 @@ mod server;
 mod client;
 
 use std::process::Command;
+use std::io::prelude::*;
 use std::io;
 use std::net::SocketAddr;
 
@@ -17,8 +18,13 @@ use client::client_manager_impl::ClientManagerImpl;
 
 use std::{thread, time};
 
+fn option_input(input_str: &str) {
+    print!("{}", input_str);
+    std::io::stdout().flush().expect("Failed to flush stdout");
+}
+
 fn handle_add_server(mut server_manager: ServerManagerImpl) {
-    println!("Enter port to bind to: ");
+    option_input("Enter port to bind to: ");
 
     let mut port = String::new();
 
@@ -37,7 +43,7 @@ fn handle_add_server(mut server_manager: ServerManagerImpl) {
 }
 
 fn handle_remove_server(mut server_manager: ServerManagerImpl) {
-    println!("Enter port to remove: ");
+    option_input("Enter port to remove: ");
 
     let mut port = String::new();
 
@@ -63,14 +69,14 @@ fn handle_remove_server(mut server_manager: ServerManagerImpl) {
 }
 
 fn handle_join_server(mut client_manager: ClientManagerImpl) {
-    println!("Enter username: ");
+    option_input("Enter username: ");
 
     let mut username = String::new();
 
     io::stdin().read_line(&mut username)
         .expect("Failed to read username");
 
-    println!("Enter server address (i.e 127.0.0.1:8080): ");
+    option_input("Enter server address (i.e 127.0.0.1:8080): ");
 
     let mut addr = String::new();
 
@@ -82,19 +88,7 @@ fn handle_join_server(mut client_manager: ClientManagerImpl) {
     if result.is_ok() {
         let sock_addr = result.unwrap();
         client_manager.join_server(username.trim().to_string(), sock_addr);
-        let connections_map = client_manager.get_connections_map();
-
-        let millis = time::Duration::from_millis(10000);
-        thread::sleep(millis);
-
-        let map = connections_map.lock().unwrap();
-        let client = map.get(&sock_addr.to_string());
-
-        loop {
-            let mut message = String::new();
-            io::stdin().read_line(&mut message).expect("Failed to message");
-            client.unwrap().send(message.trim());
-        }
+        return;
     }
 
     println!("Error: {}", result.unwrap_err());
@@ -113,11 +107,11 @@ fn main() {
 
     let row = "*".repeat(38);
     let welcome_line = "*    Welcome to terminal-chat-rs!    *";
-    let author_line = "*    @author Dimeji Ogunyoye         *";
+    let author_line  = "*    @author Dimeji Ogunyoye         *";
 
     let create_server_option = "[1] Create server";
     let remove_server_option = "[2] Remove server";
-    let join_server_option = "[3] Join server";
+    let join_server_option   = "[3] Join server";
 
     println!("{}", row);
     println!("{}", welcome_line);
@@ -127,7 +121,7 @@ fn main() {
     println!("{}", remove_server_option);
     println!("{}\n", join_server_option);
 
-    println!("Please select an option: ");
+    option_input("Please select an option: ");
 
     let mut option = String::new();
 
@@ -146,7 +140,9 @@ fn main() {
         1 => {
             println!("Creating server...");
             handle_add_server(server_manager);
-            loop {};
+            loop {
+                thread::sleep(time::Duration::from_millis(10000));
+            };
         },
         2 => {
             println!("Removing server...");
