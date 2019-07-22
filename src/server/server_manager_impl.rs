@@ -62,7 +62,7 @@ impl ServerManagerFactory for ServerManagerImpl {
 
 impl ServerManager for ServerManagerImpl {
 
-    fn add_server(&mut self, port:u32) {
+    fn add_server(&mut self, port:u32) -> Result<String, String> {
         println!("Adding server on port {}", port);
 
         let sock_addr = "127.0.0.1:".to_owned() + &port.to_string();
@@ -78,10 +78,12 @@ impl ServerManager for ServerManagerImpl {
                 Server { out, rooms: rooms.clone()}
         ).unwrap());
 
-        if !self.servers.contains_key(&key) {
-            self.servers.insert(key, join_handle);
+        if self.servers.insert(key, join_handle).is_none() {
+            let ok_message = format!("Server on port {} added", port);
+            return Ok(ok_message);
         }
 
+        return Err(format!("Server on port {} already exists", port));
     }
 
     fn remove_server(&mut self, port:u32) -> Result<String, String> {

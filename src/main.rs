@@ -39,7 +39,14 @@ fn handle_add_server(mut server_manager: ServerManagerImpl) {
         },
     };
 
-    server_manager.add_server(port_num);
+    let add_result = server_manager.add_server(port_num);
+
+    if add_result.is_ok() {
+        println!("{}", add_result.unwrap());
+        return;
+    }
+
+    println!("{}", add_result.unwrap_err());
 }
 
 fn handle_remove_server(mut server_manager: ServerManagerImpl) {

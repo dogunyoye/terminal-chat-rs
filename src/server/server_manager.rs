@@ -4,7 +4,7 @@ pub trait ServerManager {
     /**
      * Add a websocket server
      **/
-    fn add_server(&mut self, port:u32);
+    fn add_server(&mut self, port:u32) -> Result<String, String>;
 
     /**
      * Remove a websocket server
