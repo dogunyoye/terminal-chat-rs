@@ -109,8 +109,8 @@ fn main() {
 
     println!("{}", String::from_utf8_lossy(&output.stdout));
 
-    let server_manager = ServerManagerImpl::new();
-    let client_manager : ClientManagerImpl = ClientManagerImpl::new();
+    let server_manager: ServerManagerImpl = ServerManagerImpl::new();
+    let client_manager: ClientManagerImpl = ClientManagerImpl::new();
 
     let row = "*".repeat(38);
     let welcome_line = "*    Welcome to terminal-chat-rs!    *";
