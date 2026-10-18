@@ -205,6 +205,8 @@ impl App {
             FormKind::Host => vec![
                 Field::new("Port", "8080"),
                 Field::new("Nickname", &nickname),
+                Field::new("TLS certificate (PEM, optional)", ""),
+                Field::new("TLS private key (PEM, optional)", ""),
             ],
             FormKind::Join => vec![
                 Field::new("Server (host:port or wss://url)", "127.0.0.1:8080"),
@@ -241,7 +243,10 @@ impl App {
             .collect();
 
         let outcome = match kind {
-            FormKind::Host => self.start_host(&values[0], &values[1]).await,
+            FormKind::Host => {
+                self.start_host(&values[0], &values[1], &values[2], &values[3])
+                    .await
+            }
             FormKind::Join => self.start_join(&values[0], &values[1]).await,
         };
 
@@ -258,22 +263,50 @@ impl App {
         }
     }
 
-    async fn start_host(&mut self, port: &str, nickname: &str) -> Result<(), String> {
+    async fn start_host(
+        &mut self,
+        port: &str,
+        nickname: &str,
+        cert: &str,
+        key: &str,
+    ) -> Result<(), String> {
         let port: u16 = port
             .parse()
             .map_err(|_| "port must be a number between 0 and 65535".to_string())?;
         let nickname = validate_nickname(nickname)?;
 
-        let server = net::server::listen(port)
-            .await
-            .map_err(|error| format!("{:#}", error))?;
+        let cert = cert.trim();
+        let key = key.trim();
+
+        if cert.is_empty() != key.is_empty() {
+            return Err("provide both a TLS certificate and private key, or neither".to_string());
+        }
+
+        let tls = !cert.is_empty();
+
+        let server = if tls {
+            net::server::listen_tls(port, net::server::TlsConfig::new(cert, key)).await
+        } else {
+            net::server::listen(port).await
+        }
+        .map_err(|error| format!("{:#}", error))?;
 
         let listen_addr = server.addr;
-        let connect_target = format!("ws://127.0.0.1:{}", listen_addr.port());
+        let port = listen_addr.port();
 
-        let client = net::client::connect(&connect_target, nickname.clone(), self.events.clone())
-            .await
-            .map_err(|error| format!("{:#}", error))?;
+        let client = if server.tls {
+            let target = format!("wss://127.0.0.1:{}", port);
+            net::client::connect_untrusted(&target, nickname.clone(), self.events.clone())
+                .await
+                .map_err(|error| format!("{:#}", error))?
+        } else {
+            let target = format!("ws://127.0.0.1:{}", port);
+            net::client::connect(&target, nickname.clone(), self.events.clone())
+                .await
+                .map_err(|error| format!("{:#}", error))?
+        };
+
+        let scheme = if server.tls { "wss" } else { "ws" };
 
         self.begin_session(
             Session {
@@ -281,7 +314,7 @@ impl App {
                 server: Some(server),
             },
             nickname,
-            format!("Hosting on {}", listen_addr),
+            format!("Hosting {}://{}", scheme, listen_addr),
         );
 
         Ok(())
@@ -529,5 +562,51 @@ mod tests {
             KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
         );
         assert_eq!(input.value(), "abc");
+    }
+
+    #[tokio::test]
+    async fn hosting_over_tls_reaches_the_chat_screen() {
+        let key_pair = rcgen::KeyPair::generate().unwrap();
+        let params = rcgen::CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+
+        let dir =
+            std::env::temp_dir().join(format!("terminal-chat-app-tls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert_path = dir.join("cert.pem");
+        let key_path = dir.join("key.pem");
+        std::fs::write(&cert_path, cert.pem()).unwrap();
+        std::fs::write(&key_path, key_pair.serialize_pem()).unwrap();
+
+        let (events, _rx) = mpsc::unbounded_channel();
+        let mut app = App::new(events);
+
+        app.form = Some(Form {
+            kind: FormKind::Host,
+            fields: vec![
+                Field::new("Port", "0"),
+                Field::new("Nickname", "alice"),
+                Field::new(
+                    "TLS certificate (PEM, optional)",
+                    cert_path.to_str().unwrap(),
+                ),
+                Field::new(
+                    "TLS private key (PEM, optional)",
+                    key_path.to_str().unwrap(),
+                ),
+            ],
+            focus: 0,
+            error: None,
+        });
+
+        app.submit_form().await;
+
+        assert_eq!(app.form.as_ref().and_then(|form| form.error.clone()), None);
+        assert_eq!(app.screen, Screen::Chat);
+        assert!(
+            app.connection_label.starts_with("Hosting wss://"),
+            "unexpected label: {}",
+            app.connection_label
+        );
     }
 }

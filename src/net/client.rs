@@ -1,10 +1,17 @@
+use std::sync::Arc;
+
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, SignatureScheme};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async, connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
+};
 
 use crate::event::AppEvent;
 use crate::protocol::{ClientMessage, ServerMessage};
@@ -57,6 +64,88 @@ pub async fn connect(
         .with_context(|| format!("failed to connect to {}", url))?;
 
     Ok(spawn(socket, nickname, events))
+}
+
+/// Connect to a `wss://` server that presents a certificate the system does not
+/// trust.
+///
+/// This is only used for the host's own loopback connection to the server it is
+/// running (`127.0.0.1`), where the address is guaranteed to be local. Remote
+/// connections always verify certificates against the system trust store.
+pub async fn connect_untrusted(
+    target: &str,
+    nickname: String,
+    events: mpsc::UnboundedSender<AppEvent>,
+) -> Result<ClientHandle> {
+    let url = normalize_url(target)?;
+    let connector = Connector::Rustls(Arc::new(accept_any_certificate_config()?));
+
+    let (socket, _) = connect_async_tls_with_config(&url, None, false, Some(connector))
+        .await
+        .with_context(|| format!("failed to connect to {}", url))?;
+
+    Ok(spawn(socket, nickname, events))
+}
+
+fn accept_any_certificate_config() -> Result<rustls::ClientConfig> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+
+    let config = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .context("failed to configure TLS protocol versions")?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyCertificate(provider)))
+        .with_no_client_auth();
+
+    Ok(config)
+}
+
+#[derive(Debug)]
+struct AcceptAnyCertificate(Arc<rustls::crypto::CryptoProvider>);
+
+impl ServerCertVerifier for AcceptAnyCertificate {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
 }
 
 /// Turn user input into a WebSocket URL.

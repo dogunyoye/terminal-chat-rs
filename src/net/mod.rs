@@ -6,6 +6,7 @@ pub use server::ServerHandle;
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::time::Duration;
 
     use tokio::sync::mpsc;
@@ -17,6 +18,31 @@ mod tests {
     /// A `host:port` target for the given server (exercises URL normalization).
     fn target(server: &ServerHandle) -> String {
         format!("127.0.0.1:{}", server.addr.port())
+    }
+
+    /// Write a throwaway self-signed certificate (SAN `127.0.0.1`) to disk.
+    fn self_signed_cert() -> (PathBuf, PathBuf) {
+        let key_pair = rcgen::KeyPair::generate().unwrap();
+        let params = rcgen::CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
+        let cert = params.self_signed(&key_pair).unwrap();
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "terminal-chat-tls-{}-{}",
+            std::process::id(),
+            unique
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let cert_path = dir.join("cert.pem");
+        let key_path = dir.join("key.pem");
+        std::fs::write(&cert_path, cert.pem()).unwrap();
+        std::fs::write(&key_path, key_pair.serialize_pem()).unwrap();
+
+        (cert_path, key_path)
     }
 
     async fn wait_for<F>(rx: &mut mpsc::UnboundedReceiver<AppEvent>, mut matches: F) -> AppEvent
@@ -165,6 +191,40 @@ mod tests {
 
         wait_for(&mut alice_rx, |event| {
             matches!(event, AppEvent::Disconnected { .. })
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn tls_server_accepts_loopback_client() {
+        let (cert, key) = self_signed_cert();
+        let server = server::listen_tls(0, server::TlsConfig::new(cert, key))
+            .await
+            .unwrap();
+        assert!(server.tls);
+
+        let target = format!("wss://127.0.0.1:{}", server.addr.port());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let alice = client::connect_untrusted(&target, "alice".to_string(), tx)
+            .await
+            .expect("client should connect over TLS");
+
+        wait_for(&mut rx, |event| {
+            matches!(event, AppEvent::Server(ServerMessage::Welcome { .. }))
+        })
+        .await;
+
+        alice
+            .send(ClientMessage::Chat {
+                content: "over tls".to_string(),
+            })
+            .unwrap();
+
+        wait_for(&mut rx, |event| {
+            matches!(
+                event,
+                AppEvent::Server(ServerMessage::Chat { content, .. }) if content == "over tls"
+            )
         })
         .await;
     }

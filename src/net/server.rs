@@ -1,21 +1,54 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::Local;
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::{TcpListener, TcpStream};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinHandle;
+use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::protocol::{ClientMessage, ServerMessage};
 
+/// TLS material used to serve `wss://` connections.
+pub struct TlsConfig {
+    pub cert_path: PathBuf,
+    pub key_path: PathBuf,
+}
+
+impl TlsConfig {
+    pub fn new(cert_path: impl Into<PathBuf>, key_path: impl Into<PathBuf>) -> Self {
+        TlsConfig {
+            cert_path: cert_path.into(),
+            key_path: key_path.into(),
+        }
+    }
+
+    fn acceptor(&self) -> Result<TlsAcceptor> {
+        let certs = load_certs(&self.cert_path)?;
+        let key = load_key(&self.key_path)?;
+
+        let config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .context("certificate and private key do not match")?;
+
+        Ok(TlsAcceptor::from(Arc::new(config)))
+    }
+}
+
 /// A running chat server.
 pub struct ServerHandle {
     pub addr: SocketAddr,
+    /// Whether the server serves `wss://` (TLS) connections.
+    pub tls: bool,
     shutdown: broadcast::Sender<()>,
     task: JoinHandle<()>,
 }
@@ -53,13 +86,23 @@ impl Room {
     }
 }
 
-/// Bind a chat server to `0.0.0.0:port` and start accepting connections.
+/// Bind a plaintext chat server to `0.0.0.0:port` and start accepting connections.
 pub async fn listen(port: u16) -> Result<ServerHandle> {
+    serve(port, None).await
+}
+
+/// Bind a TLS chat server (`wss://`) to `0.0.0.0:port` using the given certificate.
+pub async fn listen_tls(port: u16, tls: TlsConfig) -> Result<ServerHandle> {
+    serve(port, Some(Arc::new(tls.acceptor()?))).await
+}
+
+async fn serve(port: u16, tls_acceptor: Option<Arc<TlsAcceptor>>) -> Result<ServerHandle> {
     let listener = TcpListener::bind(("0.0.0.0", port))
         .await
         .with_context(|| format!("failed to bind to port {}", port))?;
 
     let addr = listener.local_addr()?;
+    let tls = tls_acceptor.is_some();
     let room = Arc::new(Mutex::new(Room::default()));
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
     let mut accept_shutdown = shutdown_tx.subscribe();
@@ -72,7 +115,21 @@ pub async fn listen(port: u16) -> Result<ServerHandle> {
                     Ok((stream, peer)) => {
                         let room = Arc::clone(&room);
                         let shutdown = connection_shutdown.subscribe();
-                        tokio::spawn(handle_connection(stream, peer, room, shutdown));
+                        let acceptor = tls_acceptor.clone();
+
+                        tokio::spawn(async move {
+                            match acceptor {
+                                Some(acceptor) => match acceptor.accept(stream).await {
+                                    Ok(tls_stream) => {
+                                        handle_connection(tls_stream, peer, room, shutdown).await;
+                                    }
+                                    Err(error) => {
+                                        eprintln!("TLS handshake with {} failed: {}", peer, error);
+                                    }
+                                },
+                                None => handle_connection(stream, peer, room, shutdown).await,
+                            }
+                        });
                     }
                     Err(error) => eprintln!("failed to accept connection: {}", error),
                 },
@@ -83,17 +140,20 @@ pub async fn listen(port: u16) -> Result<ServerHandle> {
 
     Ok(ServerHandle {
         addr,
+        tls,
         shutdown: shutdown_tx,
         task,
     })
 }
 
-async fn handle_connection(
-    stream: TcpStream,
+async fn handle_connection<S>(
+    stream: S,
     peer: SocketAddr,
     room: Arc<Mutex<Room>>,
     mut shutdown_rx: broadcast::Receiver<()>,
-) {
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let socket = match accept_async(stream).await {
         Ok(socket) => socket,
         Err(error) => {
@@ -251,4 +311,28 @@ async fn broadcast(room: &Arc<Mutex<Room>>, message: &ServerMessage) {
     for sender in senders {
         let _ = sender.send(message.clone());
     }
+}
+
+fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
+    let data = std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut reader = data.as_slice();
+
+    let certs = rustls_pemfile::certs(&mut reader)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .with_context(|| format!("failed to parse certificates from {}", path.display()))?;
+
+    if certs.is_empty() {
+        bail!("no certificates found in {}", path.display());
+    }
+
+    Ok(certs)
+}
+
+fn load_key(path: &Path) -> Result<PrivateKeyDer<'static>> {
+    let data = std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut reader = data.as_slice();
+
+    rustls_pemfile::private_key(&mut reader)
+        .with_context(|| format!("failed to parse private key from {}", path.display()))?
+        .ok_or_else(|| anyhow!("no private key found in {}", path.display()))
 }

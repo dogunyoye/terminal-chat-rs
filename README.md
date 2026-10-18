@@ -11,7 +11,7 @@ shared, live message log.
 - Host a chat server or join an existing one, from a single binary
 - Nickname-based rooms with join/leave notifications
 - JSON wire protocol over WebSockets (async, powered by tokio + tokio-tungstenite)
-- Join by DNS name over `ws://` or TLS `wss://`
+- Join by DNS name over `ws://` or TLS `wss://`; optionally host `wss://` directly
 - Word-wrapped message log with scrollback, input editing, and a status bar
 
 ## Usage
@@ -26,6 +26,19 @@ Use `Up`/`Down` to choose **Host a server** or **Join a server** and press
 To connect multiple clients, run the binary in several terminals and join
 `127.0.0.1:<port>` (the default port is `8080`).
 
+### Hosting with TLS
+
+The **Host** form has two optional fields for a PEM certificate and private key.
+Fill in both (and leave them empty for plaintext `ws://`) to serve `wss://`
+directly:
+
+- `TLS certificate (PEM, optional)` — e.g. `fullchain.pem`
+- `TLS private key (PEM, optional)` — e.g. `privkey.pem`
+
+When set, the server accepts TLS connections and the host joins its own room
+over `wss://127.0.0.1:<port>`. Certificate verification is skipped only for that
+loopback connection, so a self-signed certificate works for hosting.
+
 ## Connecting over the internet
 
 The **Join** field accepts any of:
@@ -37,9 +50,10 @@ The **Join** field accepts any of:
 Hostnames are resolved with DNS, so you can join by name (e.g.
 `wss://chat.example.com`).
 
-Hosting binds `0.0.0.0:<port>` and speaks plaintext `ws://`, which is reachable
-from the internet when the machine has a public IP or a forwarded port. To serve
-`wss://`, put the host behind a TLS-terminating reverse proxy such as nginx or
+Hosting binds `0.0.0.0:<port>` and speaks plaintext `ws://` by default, which is
+reachable from the internet when the machine has a public IP or a forwarded port.
+Supply a certificate and key in the **Host** form to serve `wss://` directly;
+otherwise put the host behind a TLS-terminating reverse proxy such as nginx or
 Caddy (or a tunnel like Cloudflare Tunnel).
 
 This is a client/server application: there is no NAT traversal, relaying, or
@@ -78,8 +92,8 @@ src/
   input.rs       Single-line text input with cursor handling
   ui.rs          ratatui rendering for every screen
   net/
-    server.rs    Async WebSocket chat server (rooms + broadcast)
-    client.rs    Async WebSocket chat client
+    server.rs    Async WebSocket chat server (rooms, broadcast, optional TLS)
+    client.rs    Async WebSocket chat client (ws:// + wss://)
 ```
 
 ## Development
