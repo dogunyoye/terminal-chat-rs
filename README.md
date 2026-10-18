@@ -1,2 +1,71 @@
 # terminal-chat-rs
-A terminal based application which provides a peer-to-peer chat service using WebSockets
+
+A terminal (TUI) based chat application built on WebSockets.
+
+Host a room from one terminal and join it from others; every participant sees a
+shared, live message log.
+
+## Features
+
+- Full-screen TUI built with [ratatui](https://ratatui.rs) + crossterm
+- Host a chat server or join an existing one, from a single binary
+- Nickname-based rooms with join/leave notifications
+- JSON wire protocol over WebSockets (async, powered by tokio + tokio-tungstenite)
+- Word-wrapped message log with scrollback, input editing, and a status bar
+
+## Usage
+
+```sh
+cargo run
+```
+
+Use `Up`/`Down` to choose **Host a server** or **Join a server** and press
+`Enter`. Fill in the port/address and a nickname, then start chatting.
+
+To connect multiple clients, run the binary in several terminals and join
+`127.0.0.1:<port>` (the default port is `8080`).
+
+## Controls
+
+| Context | Keys | Action |
+| --- | --- | --- |
+| Menu | `Up`/`Down`, `Enter` | Select an option |
+| Form | `Tab`/`Shift+Tab` | Move between fields |
+| Form | `Enter` / `Esc` | Submit / cancel |
+| Chat | `Enter` | Send message |
+| Chat | `PageUp`/`PageDown`, `Up`/`Down` | Scroll the log |
+| Chat | `Esc` | Leave and return to the menu |
+| Anywhere | `Ctrl-C` | Quit |
+
+### Commands
+
+Type a message beginning with `/` to run a command:
+
+- `/help` – list commands
+- `/users` – list participants
+- `/leave` – leave the current room
+- `/quit` – exit the application
+
+## Project layout
+
+```
+src/
+  main.rs        Entry point: sets up the terminal and runs the app
+  app.rs         Application state machine and event loop
+  event.rs       Events delivered from the networking layer
+  protocol.rs    JSON chat protocol (client/server messages)
+  input.rs       Single-line text input with cursor handling
+  ui.rs          ratatui rendering for every screen
+  net/
+    server.rs    Async WebSocket chat server (rooms + broadcast)
+    client.rs    Async WebSocket chat client
+```
+
+## Development
+
+```sh
+cargo build          # compile
+cargo test           # run unit + networking tests
+cargo clippy --all-targets
+cargo fmt
+```
