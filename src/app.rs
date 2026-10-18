@@ -7,6 +7,7 @@ use crate::event::AppEvent;
 use crate::input::InputState;
 use crate::net::{self, ClientHandle, ServerHandle};
 use crate::protocol::{ClientMessage, ServerMessage};
+use crate::sanitize;
 use crate::ui;
 
 pub const HOME_ITEMS: [&str; 3] = ["Host a server", "Join a server", "Quit"];
@@ -418,19 +419,23 @@ impl App {
                 self.entries
                     .push(ChatEntry::System(format!("Connection closed: {}", reason)));
             }
-            AppEvent::Error(message) => self.entries.push(ChatEntry::Error(message)),
+            AppEvent::Error(message) => self
+                .entries
+                .push(ChatEntry::Error(sanitize::sanitize(&message))),
         }
     }
 
     fn handle_server_message(&mut self, message: ServerMessage) {
         match message {
             ServerMessage::Welcome { nickname, users } => {
+                let nickname = sanitize::sanitize(&nickname);
                 self.nickname = nickname.clone();
-                self.users = users;
+                self.users = users.iter().map(|user| sanitize::sanitize(user)).collect();
                 self.entries
                     .push(ChatEntry::System(format!("You joined as {}", nickname)));
             }
             ServerMessage::Joined { nickname } => {
+                let nickname = sanitize::sanitize(&nickname);
                 if !self.users.contains(&nickname) {
                     self.users.push(nickname.clone());
                 }
@@ -438,6 +443,7 @@ impl App {
                     .push(ChatEntry::System(format!("{} joined", nickname)));
             }
             ServerMessage::Left { nickname } => {
+                let nickname = sanitize::sanitize(&nickname);
                 self.users.retain(|user| user != &nickname);
                 self.entries
                     .push(ChatEntry::System(format!("{} left", nickname)));
@@ -448,13 +454,14 @@ impl App {
                 timestamp,
             } => {
                 self.entries.push(ChatEntry::Message {
-                    nickname,
-                    content,
-                    timestamp,
+                    nickname: sanitize::sanitize(&nickname),
+                    content: sanitize::sanitize(&content),
+                    timestamp: sanitize::sanitize(&timestamp),
                 });
             }
             ServerMessage::Error { message } => {
-                self.entries.push(ChatEntry::Error(message));
+                self.entries
+                    .push(ChatEntry::Error(sanitize::sanitize(&message)));
             }
         }
     }
@@ -490,6 +497,10 @@ fn validate_nickname(nickname: &str) -> Result<String, String> {
             "nickname must be {} characters or fewer",
             MAX_NICKNAME_LEN
         ));
+    }
+
+    if sanitize::sanitize(nickname) != nickname {
+        return Err("nickname contains invalid characters".to_string());
     }
 
     Ok(nickname.to_string())
@@ -562,6 +573,28 @@ mod tests {
             KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
         );
         assert_eq!(input.value(), "abc");
+    }
+
+    #[test]
+    fn sanitizes_text_from_the_server() {
+        let (events, _rx) = mpsc::unbounded_channel();
+        let mut app = App::new(events);
+
+        app.handle_server_message(ServerMessage::Chat {
+            nickname: "ev\u{1b}]0;spoof".to_string(),
+            content: "hi\u{1b}]0;pwned\u{7}".to_string(),
+            timestamp: "12:00:00".to_string(),
+        });
+
+        match app.entries.last() {
+            Some(ChatEntry::Message {
+                nickname, content, ..
+            }) => {
+                assert_eq!(nickname, "ev]0;spoof");
+                assert_eq!(content, "hi]0;pwned");
+            }
+            other => panic!("unexpected entry: {other:?}"),
+        }
     }
 
     #[tokio::test]

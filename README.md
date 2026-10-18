@@ -89,6 +89,7 @@ src/
   app.rs         Application state machine and event loop
   event.rs       Events delivered from the networking layer
   protocol.rs    JSON chat protocol (client/server messages)
+  sanitize.rs    Strips control characters from untrusted text before display
   input.rs       Single-line text input with cursor handling
   ui.rs          ratatui rendering for every screen
   net/

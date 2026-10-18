@@ -3,6 +3,7 @@ mod event;
 mod input;
 mod net;
 mod protocol;
+mod sanitize;
 mod ui;
 
 use anyhow::Result;
