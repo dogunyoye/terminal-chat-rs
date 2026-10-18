@@ -11,11 +11,18 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinHandle;
+use tokio::time::{interval_at, Instant, MissedTickBehavior};
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::net::{IDLE_TIMEOUT, PING_INTERVAL};
 use crate::protocol::{ClientMessage, ServerMessage};
+use crate::sanitize;
+
+/// How many queued messages a single slow client may accumulate before it is
+/// considered too far behind and disconnected.
+const CLIENT_QUEUE_CAPACITY: usize = 256;
 
 /// TLS material used to serve `wss://` connections.
 pub struct TlsConfig {
@@ -69,7 +76,10 @@ impl Drop for ServerHandle {
 
 struct Client {
     nickname: Option<String>,
-    out: mpsc::UnboundedSender<ServerMessage>,
+    out: mpsc::Sender<ServerMessage>,
+    /// Fires when the server decides to drop this client (e.g. it fell too far
+    /// behind), waking its connection task so it can clean up.
+    close: broadcast::Sender<()>,
 }
 
 #[derive(Default)]
@@ -163,7 +173,8 @@ async fn handle_connection<S>(
     };
 
     let (mut write, mut read) = socket.split();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMessage>();
+    let (out_tx, mut out_rx) = mpsc::channel::<ServerMessage>(CLIENT_QUEUE_CAPACITY);
+    let (close_tx, mut close_rx) = broadcast::channel::<()>(1);
 
     let id = {
         let mut room = room.lock().await;
@@ -173,46 +184,85 @@ async fn handle_connection<S>(
             Client {
                 nickname: None,
                 out: out_tx.clone(),
+                close: close_tx.clone(),
             },
         );
         id
     };
 
     let forwarder = tokio::spawn(async move {
-        while let Some(message) = out_rx.recv().await {
-            let text = match message.to_json() {
-                Ok(text) => text,
-                Err(_) => continue,
-            };
+        let mut ping = interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
+        ping.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-            if write.send(Message::text(text)).await.is_err() {
-                break;
+        loop {
+            tokio::select! {
+                message = out_rx.recv() => match message {
+                    Some(message) => {
+                        let text = match message.to_json() {
+                            Ok(text) => text,
+                            Err(_) => continue,
+                        };
+
+                        if write.send(Message::text(text)).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                _ = ping.tick() => {
+                    if write.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
 
         let _ = write.close().await;
     });
 
+    let mut last_seen = Instant::now();
+    let mut idle_check = interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
+    idle_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     loop {
         let item = tokio::select! {
             item = read.next() => item,
+            _ = idle_check.tick() => {
+                if last_seen.elapsed() >= IDLE_TIMEOUT {
+                    break;
+                }
+                continue;
+            }
             _ = shutdown_rx.recv() => break,
+            _ = close_rx.recv() => break,
         };
 
         let text = match item {
             Some(Ok(Message::Text(text))) => text,
             Some(Ok(Message::Close(_))) | None => break,
-            Some(Ok(_)) => continue,
+            Some(Ok(_)) => {
+                last_seen = Instant::now();
+                continue;
+            }
             Some(Err(_)) => break,
         };
+
+        last_seen = Instant::now();
 
         match ClientMessage::from_json(&text) {
             Ok(ClientMessage::Join { nickname }) => {
                 let nickname = nickname.trim().to_string();
 
                 if nickname.is_empty() {
-                    let _ = out_tx.send(ServerMessage::Error {
+                    let _ = out_tx.try_send(ServerMessage::Error {
                         message: "nickname cannot be empty".to_string(),
+                    });
+                    break;
+                }
+
+                if sanitize::sanitize(&nickname) != nickname {
+                    let _ = out_tx.try_send(ServerMessage::Error {
+                        message: "nickname contains invalid characters".to_string(),
                     });
                     break;
                 }
@@ -226,7 +276,7 @@ async fn handle_connection<S>(
                         .any(|client| client.nickname.as_deref() == Some(nickname.as_str()));
 
                     if taken {
-                        let _ = out_tx.send(ServerMessage::Error {
+                        let _ = out_tx.try_send(ServerMessage::Error {
                             message: format!("nickname '{}' is already taken", nickname),
                         });
                         break;
@@ -242,7 +292,7 @@ async fn handle_connection<S>(
                         .collect::<Vec<_>>()
                 };
 
-                let _ = out_tx.send(ServerMessage::Welcome {
+                let _ = out_tx.try_send(ServerMessage::Welcome {
                     nickname: nickname.clone(),
                     users,
                 });
@@ -272,14 +322,14 @@ async fn handle_connection<S>(
                         broadcast(&room, &message).await;
                     }
                     None => {
-                        let _ = out_tx.send(ServerMessage::Error {
+                        let _ = out_tx.try_send(ServerMessage::Error {
                             message: "you must join before sending messages".to_string(),
                         });
                     }
                 }
             }
             Err(error) => {
-                let _ = out_tx.send(ServerMessage::Error {
+                let _ = out_tx.try_send(ServerMessage::Error {
                     message: format!("malformed message: {}", error),
                 });
             }
@@ -300,16 +350,21 @@ async fn handle_connection<S>(
 }
 
 async fn broadcast(room: &Arc<Mutex<Room>>, message: &ServerMessage) {
-    let senders: Vec<mpsc::UnboundedSender<ServerMessage>> = {
-        let room = room.lock().await;
-        room.clients
-            .values()
-            .map(|client| client.out.clone())
-            .collect()
-    };
+    let mut room = room.lock().await;
 
-    for sender in senders {
-        let _ = sender.send(message.clone());
+    let mut slow: Vec<u64> = Vec::new();
+    for (id, client) in &room.clients {
+        if client.out.try_send(message.clone()).is_err() {
+            slow.push(*id);
+        }
+    }
+
+    // A client whose queue is full (or whose connection is gone) is too far
+    // behind to keep up, so drop it rather than let its backlog grow forever.
+    for id in slow {
+        if let Some(client) = room.clients.remove(&id) {
+            let _ = client.close.send(());
+        }
     }
 }
 

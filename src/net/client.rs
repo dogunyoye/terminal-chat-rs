@@ -8,12 +8,14 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio::time::{interval_at, Instant, MissedTickBehavior};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{
     connect_async, connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
 };
 
 use crate::event::AppEvent;
+use crate::net::{IDLE_TIMEOUT, PING_INTERVAL};
 use crate::protocol::{ClientMessage, ServerMessage};
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -184,17 +186,32 @@ fn spawn(
 
     let writer_events = events.clone();
     let writer = tokio::spawn(async move {
-        while let Some(message) = out_rx.recv().await {
-            let text = match message.to_json() {
-                Ok(text) => text,
-                Err(error) => {
-                    let _ = writer_events.send(AppEvent::Error(error.to_string()));
-                    continue;
-                }
-            };
+        let mut ping = interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
+        ping.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-            if write.send(Message::text(text)).await.is_err() {
-                break;
+        loop {
+            tokio::select! {
+                message = out_rx.recv() => match message {
+                    Some(message) => {
+                        let text = match message.to_json() {
+                            Ok(text) => text,
+                            Err(error) => {
+                                let _ = writer_events.send(AppEvent::Error(error.to_string()));
+                                continue;
+                            }
+                        };
+
+                        if write.send(Message::text(text)).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                _ = ping.tick() => {
+                    if write.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
 
@@ -203,31 +220,45 @@ fn spawn(
 
     let reader_events = events.clone();
     let reader = tokio::spawn(async move {
-        while let Some(item) = read.next().await {
-            match item {
-                Ok(Message::Text(text)) => match ServerMessage::from_json(&text) {
-                    Ok(message) => {
-                        if reader_events.send(AppEvent::Server(message)).is_err() {
-                            break;
+        let mut last_seen = Instant::now();
+        let mut idle_check = interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
+        idle_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+        let reason = loop {
+            tokio::select! {
+                item = read.next() => match item {
+                    Some(Ok(Message::Text(text))) => {
+                        last_seen = Instant::now();
+                        match ServerMessage::from_json(&text) {
+                            Ok(message) => {
+                                if reader_events.send(AppEvent::Server(message)).is_err() {
+                                    break "the application stopped listening".to_string();
+                                }
+                            }
+                            Err(error) => {
+                                let _ = reader_events
+                                    .send(AppEvent::Error(format!("invalid message: {}", error)));
+                            }
                         }
                     }
-                    Err(error) => {
-                        let _ = reader_events
-                            .send(AppEvent::Error(format!("invalid message: {}", error)));
+                    Some(Ok(Message::Close(_))) | None => {
+                        break "the server closed the connection".to_string();
+                    }
+                    Some(Ok(_)) => last_seen = Instant::now(),
+                    Some(Err(error)) => {
+                        let _ = reader_events.send(AppEvent::Error(error.to_string()));
+                        break "the connection failed".to_string();
                     }
                 },
-                Ok(Message::Close(_)) => break,
-                Ok(_) => {}
-                Err(error) => {
-                    let _ = reader_events.send(AppEvent::Error(error.to_string()));
-                    break;
+                _ = idle_check.tick() => {
+                    if last_seen.elapsed() >= IDLE_TIMEOUT {
+                        break "the connection timed out".to_string();
+                    }
                 }
             }
-        }
+        };
 
-        let _ = reader_events.send(AppEvent::Disconnected {
-            reason: "the server closed the connection".to_string(),
-        });
+        let _ = reader_events.send(AppEvent::Disconnected { reason });
     });
 
     ClientHandle {

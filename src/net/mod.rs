@@ -1,8 +1,15 @@
 pub mod client;
 pub mod server;
 
+use std::time::Duration;
+
 pub use client::ClientHandle;
 pub use server::ServerHandle;
+
+/// How often each side sends a WebSocket ping to the other.
+pub(crate) const PING_INTERVAL: Duration = Duration::from_secs(20);
+/// A connection that has been silent for this long is considered dead.
+pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[cfg(test)]
 mod tests {
@@ -193,6 +200,30 @@ mod tests {
             matches!(event, AppEvent::Disconnected { .. })
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn nicknames_with_control_characters_are_rejected() {
+        let server = server::listen(0).await.unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let _client = client::connect(&target(&server), "bad\u{1b}]0;x".to_string(), tx)
+            .await
+            .unwrap();
+
+        let event = wait_for(&mut rx, |event| {
+            matches!(event, AppEvent::Server(ServerMessage::Error { .. }))
+        })
+        .await;
+
+        match event {
+            AppEvent::Server(ServerMessage::Error { message }) => {
+                assert!(
+                    message.contains("invalid characters"),
+                    "unexpected: {message}"
+                );
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[tokio::test]
