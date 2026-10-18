@@ -1,6 +1,4 @@
-use std::net::SocketAddr;
-
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -42,19 +40,45 @@ impl Drop for ClientHandle {
 
 /// Connect to a chat server and join the room as `nickname`.
 ///
+/// `target` may be a `ws://` or `wss://` URL, or a bare `host:port` (in which
+/// case `ws://` is assumed). Hostnames are resolved using DNS and `wss://`
+/// connects over TLS.
+///
 /// Received messages are delivered over `events`.
 pub async fn connect(
-    addr: SocketAddr,
+    target: &str,
     nickname: String,
     events: mpsc::UnboundedSender<AppEvent>,
 ) -> Result<ClientHandle> {
-    let url = format!("ws://{}", addr);
+    let url = normalize_url(target)?;
 
     let (socket, _) = connect_async(&url)
         .await
         .with_context(|| format!("failed to connect to {}", url))?;
 
     Ok(spawn(socket, nickname, events))
+}
+
+/// Turn user input into a WebSocket URL.
+///
+/// Accepts `ws://…`/`wss://…` URLs as-is and treats anything else as a
+/// `host[:port]` for a plaintext `ws://` connection.
+pub fn normalize_url(target: &str) -> Result<String> {
+    let target = target.trim();
+
+    if target.is_empty() {
+        bail!("enter a server address");
+    }
+
+    if target.starts_with("ws://") || target.starts_with("wss://") {
+        return Ok(target.to_string());
+    }
+
+    if let Some((scheme, _)) = target.split_once("://") {
+        bail!("unsupported scheme '{}' (use ws:// or wss://)", scheme);
+    }
+
+    Ok(format!("ws://{}", target))
 }
 
 fn spawn(
@@ -120,5 +144,58 @@ fn spawn(
     ClientHandle {
         sender: out_tx,
         tasks: vec![writer, reader],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adds_ws_scheme_to_bare_addresses() {
+        assert_eq!(
+            normalize_url("127.0.0.1:8080").unwrap(),
+            "ws://127.0.0.1:8080"
+        );
+        assert_eq!(normalize_url("example.com").unwrap(), "ws://example.com");
+    }
+
+    #[test]
+    fn trims_whitespace() {
+        assert_eq!(
+            normalize_url("  example.com:9000  ").unwrap(),
+            "ws://example.com:9000"
+        );
+    }
+
+    #[test]
+    fn keeps_explicit_schemes() {
+        assert_eq!(
+            normalize_url("wss://chat.example.com/room").unwrap(),
+            "wss://chat.example.com/room"
+        );
+        assert_eq!(
+            normalize_url("ws://10.0.0.1:8080").unwrap(),
+            "ws://10.0.0.1:8080"
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_schemes_and_empty_input() {
+        assert!(normalize_url("https://example.com").is_err());
+        assert!(normalize_url("   ").is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires internet access"]
+    async fn connects_over_tls_to_a_public_endpoint() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        match connect("wss://echo.websocket.org", "tester".to_string(), tx).await {
+            Ok(_client) => {}
+            Err(error) => panic!("failed to connect over TLS: {error:#}"),
+        }
     }
 }

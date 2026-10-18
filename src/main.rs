@@ -12,6 +12,9 @@ use crate::app::App;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install the process-wide rustls crypto provider so `wss://` URLs work.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let (events_tx, events_rx) = mpsc::unbounded_channel();
     let mut app = App::new(events_tx);
 

@@ -6,7 +6,6 @@ pub use server::ServerHandle;
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
     use std::time::Duration;
 
     use tokio::sync::mpsc;
@@ -14,6 +13,11 @@ mod tests {
     use super::*;
     use crate::event::AppEvent;
     use crate::protocol::{ClientMessage, ServerMessage};
+
+    /// A `host:port` target for the given server (exercises URL normalization).
+    fn target(server: &ServerHandle) -> String {
+        format!("127.0.0.1:{}", server.addr.port())
+    }
 
     async fn wait_for<F>(rx: &mut mpsc::UnboundedReceiver<AppEvent>, mut matches: F) -> AppEvent
     where
@@ -36,10 +40,9 @@ mod tests {
         server: &ServerHandle,
         nickname: &str,
     ) -> (ClientHandle, mpsc::UnboundedReceiver<AppEvent>) {
-        let addr = SocketAddr::from(([127, 0, 0, 1], server.addr.port()));
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        let client = client::connect(addr, nickname.to_string(), tx)
+        let client = client::connect(&target(server), nickname.to_string(), tx)
             .await
             .expect("client should connect");
 
@@ -54,9 +57,8 @@ mod tests {
     #[tokio::test]
     async fn welcome_lists_the_joining_user() {
         let server = server::listen(0).await.unwrap();
-        let addr = SocketAddr::from(([127, 0, 0, 1], server.addr.port()));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let _alice = client::connect(addr, "alice".to_string(), tx)
+        let _alice = client::connect(&target(&server), "alice".to_string(), tx)
             .await
             .unwrap();
 
@@ -109,9 +111,8 @@ mod tests {
         let server = server::listen(0).await.unwrap();
         let (_alice, _alice_rx) = connect_to(&server, "alice").await;
 
-        let addr = SocketAddr::from(([127, 0, 0, 1], server.addr.port()));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let _duplicate = client::connect(addr, "alice".to_string(), tx)
+        let _duplicate = client::connect(&target(&server), "alice".to_string(), tx)
             .await
             .unwrap();
 

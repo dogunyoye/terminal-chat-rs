@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
@@ -209,7 +207,7 @@ impl App {
                 Field::new("Nickname", &nickname),
             ],
             FormKind::Join => vec![
-                Field::new("Address", "127.0.0.1:8080"),
+                Field::new("Server (host:port or wss://url)", "127.0.0.1:8080"),
                 Field::new("Nickname", &nickname),
             ],
         };
@@ -271,9 +269,9 @@ impl App {
             .map_err(|error| format!("{:#}", error))?;
 
         let listen_addr = server.addr;
-        let connect_addr = SocketAddr::from(([127, 0, 0, 1], listen_addr.port()));
+        let connect_target = format!("ws://127.0.0.1:{}", listen_addr.port());
 
-        let client = net::client::connect(connect_addr, nickname.clone(), self.events.clone())
+        let client = net::client::connect(&connect_target, nickname.clone(), self.events.clone())
             .await
             .map_err(|error| format!("{:#}", error))?;
 
@@ -289,13 +287,11 @@ impl App {
         Ok(())
     }
 
-    async fn start_join(&mut self, addr: &str, nickname: &str) -> Result<(), String> {
-        let addr: SocketAddr = addr
-            .parse()
-            .map_err(|_| "address must look like host:port".to_string())?;
+    async fn start_join(&mut self, target: &str, nickname: &str) -> Result<(), String> {
+        let target = target.trim();
         let nickname = validate_nickname(nickname)?;
 
-        let client = net::client::connect(addr, nickname.clone(), self.events.clone())
+        let client = net::client::connect(target, nickname.clone(), self.events.clone())
             .await
             .map_err(|error| format!("{:#}", error))?;
 
@@ -305,7 +301,7 @@ impl App {
                 server: None,
             },
             nickname,
-            format!("Connected to {}", addr),
+            format!("Connected to {}", target),
         );
 
         Ok(())

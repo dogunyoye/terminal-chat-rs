@@ -11,6 +11,7 @@ shared, live message log.
 - Host a chat server or join an existing one, from a single binary
 - Nickname-based rooms with join/leave notifications
 - JSON wire protocol over WebSockets (async, powered by tokio + tokio-tungstenite)
+- Join by DNS name over `ws://` or TLS `wss://`
 - Word-wrapped message log with scrollback, input editing, and a status bar
 
 ## Usage
@@ -24,6 +25,26 @@ Use `Up`/`Down` to choose **Host a server** or **Join a server** and press
 
 To connect multiple clients, run the binary in several terminals and join
 `127.0.0.1:<port>` (the default port is `8080`).
+
+## Connecting over the internet
+
+The **Join** field accepts any of:
+
+- `host:port` (assumes `ws://`), e.g. `192.168.1.20:8080`
+- `ws://host[:port][/path]`
+- `wss://host[:port][/path]` — encrypted, uses the system/webpki trust roots
+
+Hostnames are resolved with DNS, so you can join by name (e.g.
+`wss://chat.example.com`).
+
+Hosting binds `0.0.0.0:<port>` and speaks plaintext `ws://`, which is reachable
+from the internet when the machine has a public IP or a forwarded port. To serve
+`wss://`, put the host behind a TLS-terminating reverse proxy such as nginx or
+Caddy (or a tunnel like Cloudflare Tunnel).
+
+This is a client/server application: there is no NAT traversal, relaying, or
+hole-punching, so two peers behind separate home networks cannot connect to each
+other directly without one of them being reachable.
 
 ## Controls
 
