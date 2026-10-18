@@ -2,7 +2,7 @@
 name = "terminal-chat-rs"
 version = "0.1.0"
 edition = "2021"
-description = "A terminal based peer-to-peer chat service using WebSockets"
+description = "Host or join a terminal (TUI) chat room from a single binary over WebSockets (ws:// and wss://)"
 authors = ["Dimeji Ogunyoye <dogunyoye@googlemail.com>"]
 license = "MIT"
 
