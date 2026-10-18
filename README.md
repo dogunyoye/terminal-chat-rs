@@ -105,3 +105,7 @@ cargo test           # run unit + networking tests
 cargo clippy --all-targets
 cargo fmt
 ```
+
+## License
+
+Released under the [MIT License](LICENSE).
